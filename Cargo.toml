@@ -8,6 +8,7 @@ license = "BSD-2-Clause-Patent"
 members = ["glfw_sys"]
 
 [dependencies]
+egui = "0.32.0"
 gl = "0.14.0"
 glfw_sys = { path = "glfw_sys" }
 tracy-client = { version = "0.18.1", optional = true, features = ["demangle"] }

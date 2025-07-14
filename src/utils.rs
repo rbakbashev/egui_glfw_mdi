@@ -50,6 +50,16 @@ pub fn to_i32<T: TryInto<i32> + Display + Copy>(x: T) -> i32 {
 }
 
 #[track_caller]
+pub fn to_usize<T: TryInto<usize> + Display + Copy>(x: T) -> usize {
+    x.try_into().ok().try_to(format!("cast {x} to usize"))
+}
+
+#[track_caller]
+pub fn to_isize<T: TryInto<isize> + Display + Copy>(x: T) -> isize {
+    x.try_into().ok().try_to(format!("cast {x} to isize"))
+}
+
+#[track_caller]
 pub fn to_cstring<T: Into<Vec<u8>> + Display + Copy>(x: T) -> CString {
     CString::new(x).try_to(format!("convert \"{x}\" to CString"))
 }

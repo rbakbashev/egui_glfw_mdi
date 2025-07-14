@@ -4,10 +4,14 @@ use std::time::{Duration, Instant};
 
 use glfw_sys::Key;
 
+use crate::gl::{Texture, init_gl};
 use crate::profiler::{mark_frame_end, profile};
+use crate::ui::UI;
 use crate::window::{Resolution, Window};
 
 pub struct MainLoop {
+    ui: UI,
+    texture: Texture,
     window: Window,
     running: bool,
 }
@@ -25,9 +29,12 @@ pub enum Event {
 
 impl MainLoop {
     pub fn new() -> Self {
-        let window = Window::new(Resolution::Windowed(1024, 768), 0, "egui_glfw_mdi demo");
+        let window = Window::new(Resolution::Windowed(1024, 768), 0, "egui_glfw_mdi");
+        let ui = UI::new(&window);
+        let texture = Texture::missing(64, 3);
+        let running = true;
 
-        Self { window, running: true }
+        Self { ui, texture, window, running }
     }
 
     pub fn run(mut self) {
@@ -57,6 +64,7 @@ impl MainLoop {
             }
 
             self.render(accum / dt);
+            self.swap_buffers();
 
             limit_fps(fps_limit, &start);
             mark_frame_end();
@@ -68,6 +76,8 @@ impl MainLoop {
 
         self.window.set_event_dest(ptr);
         self.window.set_viewport();
+
+        init_gl();
     }
 
     fn poll_events(&mut self) {
@@ -81,11 +91,37 @@ impl MainLoop {
 
     fn update(&mut self, t: f32, dt: f32) {
         profile!();
+        self.ui.update(t, dt);
     }
 
-    fn render(&mut self, alpha: f32) {
+    fn render(&mut self, _alpha: f32) {
         profile!();
-        self.swap_buffers();
+
+        unsafe {
+            gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
+        }
+
+        let usr_texture = egui::TextureId::User(self.texture.id.into());
+        let siz_texture = egui::load::SizedTexture::new(usr_texture, egui::Vec2::new(64., 64.));
+        let grid_size_y = 29;
+        let grid_size_x = 20;
+
+        self.ui.render(|ctx| {
+            egui::Window::new("hi").show(ctx, |ui| {
+                ui.label("image:");
+                ui.image(egui::ImageSource::Texture(siz_texture));
+
+                egui::Grid::new("id").show(ui, |ui| {
+                    for y in 0..grid_size_y {
+                        for x in 0..grid_size_x {
+                            ui.label(format!("{y},{x}"));
+                        }
+
+                        ui.end_row();
+                    }
+                });
+            });
+        });
     }
 
     fn swap_buffers(&self) {
@@ -99,6 +135,8 @@ impl MainLoop {
             Event::WindowResize(..) => self.window.set_viewport(),
             _ => {}
         }
+
+        self.ui.handle_event(&event);
     }
 
     pub fn window_mut(&mut self) -> &mut Window {

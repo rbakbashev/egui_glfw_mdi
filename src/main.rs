@@ -11,11 +11,14 @@
     clippy::missing_const_for_fn,
     clippy::option_if_let_else,
     clippy::similar_names,
+    clippy::unnecessary_wraps,
     clippy::unused_self
 )]
 
+mod gl;
 mod main_loop;
 mod profiler;
+mod ui;
 mod utils;
 mod window;
 
