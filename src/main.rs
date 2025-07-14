@@ -1,3 +1,29 @@
+#![allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss,
+    clippy::suboptimal_flops
+)]
+#![allow(
+    clippy::borrow_as_ptr,
+    clippy::manual_assert,
+    clippy::missing_const_for_fn,
+    clippy::option_if_let_else,
+    clippy::similar_names,
+    clippy::unused_self
+)]
+
+mod main_loop;
+mod profiler;
+mod utils;
+mod window;
+
+use main_loop::MainLoop;
+use profiler::setup_profiler;
+
 fn main() {
-    println!("Hello, world!");
+    setup_profiler();
+
+    MainLoop::new().run();
 }
