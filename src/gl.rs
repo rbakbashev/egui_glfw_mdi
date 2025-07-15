@@ -21,7 +21,7 @@ pub struct Buffer {
 }
 
 pub struct Texture {
-    pub id: u32,
+    id: u32,
 }
 
 macro_rules! include_shader {
@@ -234,6 +234,50 @@ impl Texture {
         out
     }
 
+    pub fn xor() -> Self {
+        let size = 256;
+        let out = Self::new();
+        let mut pixels = vec![0_u32; size * size];
+
+        for y in 0..size {
+            for x in 0..size {
+                let byte = (y as u32) ^ (x as u32);
+                let rgb = (255 << 24) | (byte << 16) | (byte << 8) | (byte);
+
+                pixels[y * size + x] = rgb;
+            }
+        }
+
+        out.enable();
+        out.upload_data(gl::RGBA8, size, size, gl::RGBA, &pixels);
+        out.generate_mipmaps();
+
+        out
+    }
+
+    pub fn rgb_slice() -> Self {
+        let size = 256;
+        let out = Self::new();
+        let mut pixels = vec![0_u32; size * size];
+
+        for y in 0..size {
+            for x in 0..size {
+                let r = x as u32;
+                let g = y as u32;
+                let b = 128;
+                let rgb = (255 << 24) | (b << 16) | (g << 8) | r;
+
+                pixels[y * size + x] = rgb;
+            }
+        }
+
+        out.enable();
+        out.upload_data(gl::RGBA8, size, size, gl::RGBA, &pixels);
+        out.generate_mipmaps();
+
+        out
+    }
+
     pub fn enable(&self) {
         unsafe {
             gl::BindTexture(gl::TEXTURE_2D, self.id);
@@ -269,6 +313,14 @@ impl Texture {
         unsafe {
             gl::GenerateMipmap(gl::TEXTURE_2D);
         }
+    }
+
+    pub fn to_img_source(&self, w: f32, h: f32) -> egui::ImageSource {
+        let usr_texture = egui::TextureId::User(self.id.into());
+        let size = egui::Vec2::new(w, h);
+        let sized_texture = egui::load::SizedTexture::new(usr_texture, size);
+
+        egui::ImageSource::Texture(sized_texture)
     }
 }
 

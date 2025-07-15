@@ -11,7 +11,7 @@ use crate::window::{Resolution, Window};
 
 pub struct MainLoop {
     ui: UI,
-    texture: Texture,
+    textures: Vec<Texture>,
     window: Window,
     running: bool,
 }
@@ -31,10 +31,10 @@ impl MainLoop {
     pub fn new() -> Self {
         let window = Window::new(Resolution::Windowed(1024, 768), 0, "egui_glfw_mdi");
         let ui = UI::new(&window);
-        let texture = Texture::missing(64, 3);
+        let textures = vec![Texture::missing(64, 3), Texture::xor(), Texture::rgb_slice()];
         let running = true;
 
-        Self { ui, texture, window, running }
+        Self { ui, textures, window, running }
     }
 
     pub fn run(mut self) {
@@ -101,17 +101,20 @@ impl MainLoop {
             gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
         }
 
-        let usr_texture = egui::TextureId::User(self.texture.id.into());
-        let siz_texture = egui::load::SizedTexture::new(usr_texture, egui::Vec2::new(64., 64.));
         let grid_size_y = 29;
         let grid_size_x = 20;
 
         self.ui.render(|ctx| {
             egui::Window::new("hi").show(ctx, |ui| {
-                ui.label("image:");
-                ui.image(egui::ImageSource::Texture(siz_texture));
+                ui.label("some images");
 
-                egui::Grid::new("id").show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    for texture in &self.textures {
+                        ui.image(texture.to_img_source(64., 64.));
+                    }
+                });
+
+                egui::Grid::new("labels").show(ui, |ui| {
                     for y in 0..grid_size_y {
                         for x in 0..grid_size_x {
                             ui.label(format!("{y},{x}"));
