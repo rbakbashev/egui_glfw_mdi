@@ -101,23 +101,23 @@ impl MainLoop {
             gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
         }
 
-        let grid_size_y = 29;
-        let grid_size_x = 20;
+        let grid_size_x = 10;
+        let grid_size_y = 20;
+        let tex_size = 32.;
+        let mut tex_idx = 0;
 
         self.ui.render(|ctx| {
             egui::Window::new("hi").show(ctx, |ui| {
-                ui.label("some images");
-
-                ui.horizontal(|ui| {
-                    for texture in &self.textures {
-                        ui.image(texture.to_img_source(64., 64.));
-                    }
-                });
-
                 egui::Grid::new("labels").show(ui, |ui| {
                     for y in 0..grid_size_y {
                         for x in 0..grid_size_x {
+                            let texture = &self.textures[tex_idx];
+
                             ui.label(format!("{y},{x}"));
+                            ui.image(texture.to_img_source(tex_size, tex_size));
+
+                            tex_idx += 1;
+                            tex_idx %= self.textures.len();
                         }
 
                         ui.end_row();
