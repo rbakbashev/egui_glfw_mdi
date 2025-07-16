@@ -2,16 +2,17 @@
 
 use std::time::{Duration, Instant};
 
+use egui::load::SizedTexture;
 use glfw_sys::Key;
 
-use crate::gl::{Texture, init_gl};
+use crate::gl::init_gl;
 use crate::profiler::{mark_frame_end, profile};
 use crate::ui::UI;
 use crate::window::{Resolution, Window};
 
 pub struct MainLoop {
     ui: UI,
-    textures: Vec<Texture>,
+    textures: Vec<SizedTexture>,
     window: Window,
     running: bool,
 }
@@ -30,8 +31,8 @@ pub enum Event {
 impl MainLoop {
     pub fn new() -> Self {
         let window = Window::new(Resolution::Windowed(1024, 768), 0, "egui_glfw_mdi");
-        let ui = UI::new(&window);
-        let textures = vec![Texture::missing(64, 3), Texture::xor(), Texture::rgb_slice()];
+        let mut ui = UI::new(&window, 16384, 256);
+        let textures = vec![ui.textures.missing(64, 3), ui.textures.xor(), ui.textures.rgb_slice()];
         let running = true;
 
         Self { ui, textures, window, running }
@@ -114,7 +115,7 @@ impl MainLoop {
                             let texture = &self.textures[tex_idx];
 
                             ui.label(format!("{y},{x}"));
-                            ui.image(texture.to_img_source(tex_size, tex_size));
+                            ui.add(egui::Image::from_texture(*texture).max_width(tex_size));
 
                             tex_idx += 1;
                             tex_idx %= self.textures.len();

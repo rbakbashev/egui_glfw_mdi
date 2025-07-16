@@ -2,9 +2,10 @@ use std::ptr;
 
 use egui::ahash::HashMap;
 use egui::epaint::{ImageDelta, Primitive};
+use egui::load::SizedTexture;
 use egui::{Context, ImageData, Mesh, Modifiers, Pos2, RawInput, Rect, TextureId, Vec2};
 
-use crate::gl::{Buffer, Program, Shader, Texture, VertexArray, include_shader};
+use crate::gl::{Buffer, Program, Shader, TextureArray, VertexArray, include_shader};
 use crate::main_loop::Event;
 use crate::profiler::profile;
 use crate::utils::CheckError;
@@ -18,14 +19,31 @@ pub struct UI {
     ctx: Context,
     input: RawInput,
     mouse_pos: Pos2,
-    textures: HashMap<TextureId, Texture>,
+
+    pub textures: TexturePool,
+}
+
+pub struct TexturePool {
+    array: TextureArray,
+    infos: HashMap<TextureId, TextureInfo>,
+    max_width: usize,
+    max_height: usize,
+    max_depth: i32,
+    next_layer: i32,
+}
+
+#[derive(Clone, Copy)]
+struct TextureInfo {
+    layer: i32,
+    width: i32,
+    height: i32,
 }
 
 impl UI {
-    pub fn new(window: &Window) -> Self {
+    pub fn new(window: &Window, max_texture_width: usize, max_texture_height: usize) -> Self {
         let vs = Shader::new(gl::VERTEX_SHADER, include_shader!("ui.vert"));
         let fs = Shader::new(gl::FRAGMENT_SHADER, include_shader!("ui.frag"));
-        let prog = Program::new([vs, fs], ["screenSize", "tex"]);
+        let prog = Program::new([vs, fs], ["screenSize", "texArray", "texLayer", "uvScale"]);
 
         let vao = VertexArray::new();
         let vertices = Buffer::new(gl::ARRAY_BUFFER);
@@ -34,7 +52,7 @@ impl UI {
         let ctx = Context::default();
         let input = initial_input(window);
         let mouse_pos = Pos2::new(0., 0.);
-        let textures = initial_textures();
+        let textures = TexturePool::new(max_texture_width, max_texture_height);
 
         let (w, h) = window.size();
 
@@ -74,6 +92,8 @@ impl UI {
         profile!();
         let output = self.ctx.run(self.input.clone(), ui);
 
+        self.textures.array.enable();
+
         for (id, delta) in output.textures_delta.set {
             self.update_texture(id, &delta);
         }
@@ -109,40 +129,31 @@ impl UI {
     }
 
     fn update_texture(&mut self, id: TextureId, delta: &ImageDelta) {
-        let texture = self.textures.entry(id).or_insert_with(Texture::new);
-
-        texture.enable();
-
         let ImageData::Color(image) = &delta.image;
         let [w, h] = image.size;
+        let [x, y] = delta.pos.unwrap_or([0, 0]);
+        let info = self.textures.fetch_or_add(id, w, h);
 
         if image.pixels.len() != w * h {
             println!("warning: UI texture len mismatch: {} != {w} * {h}", image.pixels.len());
         }
 
-        match delta.pos {
-            Some([x, y]) => texture.upload_subdata(x, y, w, h, gl::RGBA, &image.pixels),
-            None => texture.upload_data(gl::RGBA8, w, h, gl::RGBA, &image.pixels),
-        }
-
-        texture.generate_mipmaps();
+        self.textures.array.upload(x as i32, y as i32, info.layer, w, h, gl::RGBA, &image.pixels);
+        self.textures.array.generate_mipmaps();
     }
 
     fn render_mesh(&self, mesh: &Mesh) {
-        match mesh.texture_id {
-            TextureId::Managed(_) => {
-                let Some(texture) = self.textures.get(&mesh.texture_id) else {
-                    println!("unknown managed UI texture: {:?}", mesh.texture_id);
-                    return;
-                };
-                texture.enable();
-            }
-            TextureId::User(id) => unsafe {
-                gl::BindTexture(gl::TEXTURE_2D, id as u32);
-            },
-        }
+        let Some(info) = self.textures.fetch(mesh.texture_id) else {
+            println!("warning: unknown texture ID {:?}", mesh.texture_id);
+            return;
+        };
 
+        let scale_x = info.width as f32 / self.textures.max_width as f32;
+        let scale_y = info.height as f32 / self.textures.max_height as f32;
         let count = mesh.indices.len() as i32;
+
+        self.prog.set_uniform_1i(2, info.layer);
+        self.prog.set_uniform_2f(3, scale_x, scale_y);
 
         self.vertices.upload_data(&mesh.vertices, gl::STREAM_DRAW);
         self.elements.upload_data(&mesh.indices, gl::STREAM_DRAW);
@@ -182,6 +193,107 @@ impl UI {
     }
 }
 
+impl TexturePool {
+    fn new(max_width: usize, max_height: usize) -> Self {
+        // this equation comes from glTexStorage3D reference page
+        let max_depth = i32::max(max_width as i32, max_height as i32).ilog2() as i32 + 1;
+
+        let array = TextureArray::new(gl::RGBA8, max_width as i32, max_height as i32, max_depth);
+        let infos = HashMap::default();
+        let next_layer = 0;
+
+        Self { array, infos, max_width, max_height, max_depth, next_layer }
+    }
+
+    pub fn missing(&mut self, size: usize, cell_size_exp: usize) -> SizedTexture {
+        let cell_size = 1 << cell_size_exp;
+        let col_a = 0xff_00_00_00;
+        let col_b = 0xff_ff_00_ff;
+
+        let mut pixels = vec![0_u32; size * size];
+
+        for y in 0..size {
+            for x in 0..size {
+                let col = if (x & cell_size) ^ (y & cell_size) == 0 { col_b } else { col_a };
+
+                pixels[y * size + x] = col;
+            }
+        }
+
+        self.insert(size, size, &pixels)
+    }
+
+    pub fn xor(&mut self) -> SizedTexture {
+        let size = 256;
+        let mut pixels = vec![0_u32; size * size];
+
+        for y in 0..size {
+            for x in 0..size {
+                let byte = (y as u32) ^ (x as u32);
+                let rgb = (255 << 24) | (byte << 16) | (byte << 8) | (byte);
+
+                pixels[y * size + x] = rgb;
+            }
+        }
+
+        self.insert(size, size, &pixels)
+    }
+
+    pub fn rgb_slice(&mut self) -> SizedTexture {
+        let size = 256;
+        let mut pixels = vec![0_u32; size * size];
+
+        for y in 0..size {
+            for x in 0..size {
+                let r = x as u32;
+                let g = y as u32;
+                let b = 128;
+                let rgb = (255 << 24) | (b << 16) | (g << 8) | r;
+
+                pixels[y * size + x] = rgb;
+            }
+        }
+
+        self.insert(size, size, &pixels)
+    }
+
+    fn insert<T>(&mut self, w: usize, h: usize, pixels: &[T]) -> SizedTexture {
+        assert!(w <= self.max_width && h <= self.max_height);
+        assert!(self.next_layer < self.max_depth);
+
+        let id = TextureId::User(self.next_layer as u64);
+        let size = Vec2::new(w as f32, h as f32);
+
+        self.array.enable();
+        self.array.upload(0, 0, self.next_layer, w, h, gl::RGBA, pixels);
+        self.infos.insert(id, TextureInfo::new(self.next_layer, w as i32, h as i32));
+
+        self.next_layer += 1;
+
+        SizedTexture::new(id, size)
+    }
+
+    fn fetch_or_add(&mut self, id: TextureId, w: usize, h: usize) -> TextureInfo {
+        *self.infos.entry(id).or_insert_with(|| {
+            let info = TextureInfo::new(self.next_layer, w as i32, h as i32);
+
+            self.next_layer += 1;
+
+            info
+        })
+    }
+
+    fn fetch(&self, id: TextureId) -> Option<&TextureInfo> {
+        self.infos.get(&id)
+    }
+}
+
+impl TextureInfo {
+    fn new(layer: i32, width: i32, height: i32) -> Self {
+        Self { layer, width, height }
+    }
+}
+
 fn initial_input(window: &Window) -> RawInput {
     let (width, height) = window.size();
     let mut max_texture_size = 0;
@@ -204,19 +316,6 @@ fn screen_rect(w: u32, h: u32) -> Option<Rect> {
     let rect = Rect::from_min_size(min, size);
 
     Some(rect)
-}
-
-fn initial_textures() -> HashMap<TextureId, Texture> {
-    let id = TextureId::Managed(0);
-    let texture = Texture::new();
-    let mut out = HashMap::default();
-
-    texture.enable();
-    texture.upload_data(gl::RGBA8, 1, 1, gl::RGBA, &[0_u8, 0, 0, 0]);
-
-    out.entry(id).or_insert(texture);
-
-    out
 }
 
 fn set_clip_rect(rect: Rect, width: f32, height: f32) {

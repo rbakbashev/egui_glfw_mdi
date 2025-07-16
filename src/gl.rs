@@ -20,7 +20,7 @@ pub struct Buffer {
     id: u32,
 }
 
-pub struct Texture {
+pub struct TextureArray {
     id: u32,
 }
 
@@ -200,131 +200,44 @@ impl Drop for Buffer {
     }
 }
 
-impl Texture {
-    pub fn new() -> Self {
+impl TextureArray {
+    pub fn new(internal_format: u32, w: i32, h: i32, d: i32) -> Self {
         let mut id = 0;
 
         unsafe {
             gl::GenTextures(1, &mut id);
+            gl::BindTexture(gl::TEXTURE_2D_ARRAY, id);
+            gl::TexStorage3D(gl::TEXTURE_2D_ARRAY, 1, internal_format, w, h, d);
         }
 
         Self { id }
     }
 
-    pub fn missing(size: usize, cell_size_exp: usize) -> Self {
-        let cell_size = 1 << cell_size_exp;
-        let col_a = 0xff_00_00_00;
-        let col_b = 0xff_ff_00_ff;
-
-        let out = Self::new();
-        let mut pattern = vec![0_u32; size * size];
-
-        for y in 0..size {
-            for x in 0..size {
-                let col = if (x & cell_size) ^ (y & cell_size) == 0 { col_b } else { col_a };
-
-                pattern[y * size + x] = col;
-            }
-        }
-
-        out.enable();
-        out.upload_data(gl::RGBA8, size, size, gl::RGBA, &pattern);
-        out.generate_mipmaps();
-
-        out
-    }
-
-    pub fn xor() -> Self {
-        let size = 256;
-        let out = Self::new();
-        let mut pixels = vec![0_u32; size * size];
-
-        for y in 0..size {
-            for x in 0..size {
-                let byte = (y as u32) ^ (x as u32);
-                let rgb = (255 << 24) | (byte << 16) | (byte << 8) | (byte);
-
-                pixels[y * size + x] = rgb;
-            }
-        }
-
-        out.enable();
-        out.upload_data(gl::RGBA8, size, size, gl::RGBA, &pixels);
-        out.generate_mipmaps();
-
-        out
-    }
-
-    pub fn rgb_slice() -> Self {
-        let size = 256;
-        let out = Self::new();
-        let mut pixels = vec![0_u32; size * size];
-
-        for y in 0..size {
-            for x in 0..size {
-                let r = x as u32;
-                let g = y as u32;
-                let b = 128;
-                let rgb = (255 << 24) | (b << 16) | (g << 8) | r;
-
-                pixels[y * size + x] = rgb;
-            }
-        }
-
-        out.enable();
-        out.upload_data(gl::RGBA8, size, size, gl::RGBA, &pixels);
-        out.generate_mipmaps();
-
-        out
-    }
-
     pub fn enable(&self) {
         unsafe {
-            gl::BindTexture(gl::TEXTURE_2D, self.id);
+            gl::BindTexture(gl::TEXTURE_2D_ARRAY, self.id);
         }
     }
 
-    pub fn upload_data<T>(&self, internal_format: u32, w: usize, h: usize, fmt: u32, data: &[T]) {
-        let internal_format = internal_format as i32;
+    pub fn upload<T>(&self, x: i32, y: i32, z: i32, w: usize, h: usize, fmt: u32, data: &[T]) {
         let w = w as i32;
         let h = h as i32;
         let ty = gl::UNSIGNED_BYTE;
         let pixels = data.as_ptr().cast();
 
         unsafe {
-            gl::TexImage2D(gl::TEXTURE_2D, 0, internal_format, w, h, 0, fmt, ty, pixels);
-        }
-    }
-
-    pub fn upload_subdata<T>(&self, x: usize, y: usize, w: usize, h: usize, fmt: u32, data: &[T]) {
-        let x = x as i32;
-        let y = y as i32;
-        let w = w as i32;
-        let h = h as i32;
-        let ty = gl::UNSIGNED_BYTE;
-        let pixels = data.as_ptr().cast();
-
-        unsafe {
-            gl::TexSubImage2D(gl::TEXTURE_2D, 0, x, y, w, h, fmt, ty, pixels);
+            gl::TexSubImage3D(gl::TEXTURE_2D_ARRAY, 0, x, y, z, w, h, 1, fmt, ty, pixels);
         }
     }
 
     pub fn generate_mipmaps(&self) {
         unsafe {
-            gl::GenerateMipmap(gl::TEXTURE_2D);
+            gl::GenerateMipmap(gl::TEXTURE_2D_ARRAY);
         }
-    }
-
-    pub fn to_img_source(&self, w: f32, h: f32) -> egui::ImageSource {
-        let usr_texture = egui::TextureId::User(self.id.into());
-        let size = egui::Vec2::new(w, h);
-        let sized_texture = egui::load::SizedTexture::new(usr_texture, size);
-
-        egui::ImageSource::Texture(sized_texture)
     }
 }
 
-impl Drop for Texture {
+impl Drop for TextureArray {
     fn drop(&mut self) {
         unsafe {
             gl::DeleteTextures(1, &self.id);
@@ -403,9 +316,17 @@ pub fn init_gl() {
 
         gl::PixelStorei(gl::UNPACK_ALIGNMENT, 1);
 
-        gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::NEAREST as i32);
-        gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::NEAREST_MIPMAP_LINEAR as i32);
+        let min = gl::NEAREST_MIPMAP_LINEAR as i32;
+        let mag = gl::NEAREST as i32;
+
+        gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, mag);
+        gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, min);
         gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as i32);
         gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as i32);
+
+        gl::TexParameteri(gl::TEXTURE_2D_ARRAY, gl::TEXTURE_MAG_FILTER, mag);
+        gl::TexParameteri(gl::TEXTURE_2D_ARRAY, gl::TEXTURE_MIN_FILTER, min);
+        gl::TexParameteri(gl::TEXTURE_2D_ARRAY, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as i32);
+        gl::TexParameteri(gl::TEXTURE_2D_ARRAY, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as i32);
     }
 }

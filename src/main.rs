@@ -7,10 +7,13 @@
 )]
 #![allow(
     clippy::borrow_as_ptr,
+    clippy::identity_op,
     clippy::manual_assert,
+    clippy::many_single_char_names,
     clippy::missing_const_for_fn,
     clippy::option_if_let_else,
     clippy::similar_names,
+    clippy::too_many_arguments,
     clippy::unnecessary_wraps,
     clippy::unused_self
 )]
