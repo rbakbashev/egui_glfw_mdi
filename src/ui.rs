@@ -3,7 +3,7 @@ use std::ptr;
 use egui::ahash::HashMap;
 use egui::epaint::{ImageDelta, Primitive};
 use egui::load::SizedTexture;
-use egui::{Context, ImageData, Mesh, Modifiers, Pos2, RawInput, Rect, TextureId, Vec2};
+use egui::{Context, Pos2, RawInput, Rect, TextureId, Vec2};
 
 use crate::gl::{Buffer, Program, Shader, TextureArray, VertexArray, include_shader};
 use crate::main_loop::Event;
@@ -16,6 +16,7 @@ pub struct UI {
     vao: VertexArray,
     vertices: Buffer,
     elements: Buffer,
+    commands: Buffer,
     ctx: Context,
     input: RawInput,
     mouse_pos: Pos2,
@@ -39,6 +40,17 @@ struct TextureInfo {
     height: i32,
 }
 
+#[repr(C, packed)]
+struct DrawElementsCmd {
+    count: u32,
+    instance_count: u32,
+    first_index: u32,
+    base_vertex: i32,
+    texture_layer: u32, // was base_instance
+    uv_scale_x: f32,
+    uv_scale_y: f32,
+}
+
 impl UI {
     pub fn new(window: &Window, max_texture_width: usize, max_texture_height: usize) -> Self {
         let vs = Shader::new(gl::VERTEX_SHADER, include_shader!("ui.vert"));
@@ -48,6 +60,7 @@ impl UI {
         let vao = VertexArray::new();
         let vertices = Buffer::new(gl::ARRAY_BUFFER);
         let elements = Buffer::new(gl::ELEMENT_ARRAY_BUFFER);
+        let commands = Buffer::new(gl::DRAW_INDIRECT_BUFFER);
 
         let ctx = Context::default();
         let input = initial_input(window);
@@ -70,7 +83,7 @@ impl UI {
 
         ctx.tessellation_options_mut(|opt| opt.feathering = false);
 
-        Self { prog, vao, vertices, elements, ctx, input, mouse_pos, textures }
+        Self { prog, vao, vertices, elements, commands, ctx, input, mouse_pos, textures }
     }
 
     fn window_size(&self) -> (f32, f32) {
@@ -85,9 +98,89 @@ impl UI {
     }
 
     pub fn render(&mut self, ui: impl FnMut(&Context)) {
-        self.render_simple(ui);
+        self.render_mdi(ui);
     }
 
+    fn render_mdi(&mut self, ui: impl FnMut(&Context)) {
+        profile!();
+        let output = self.ctx.run(self.input.clone(), ui);
+
+        self.prog.enable();
+        self.vao.enable();
+        self.textures.array.enable();
+
+        // There's probably a better way to do this: instead of binding draw commands as SSBO and
+        // accessing them via gl_DrawID (requires GL 4.6), bind them as GL_ARRAY_BUFFER and access
+        // via attributes and attribute divisors. Or just make a separate buffer for texture infos.
+        self.commands.set_ssbo_binding(0);
+
+        for (id, delta) in output.textures_delta.set {
+            self.update_texture(id, &delta);
+        }
+
+        let clip_primitives = self.ctx.tessellate(output.shapes, output.pixels_per_point);
+        let command_count = self.upload_to_buffers(clip_primitives);
+        let stride = size_of::<DrawElementsCmd>() as i32;
+
+        unsafe {
+            gl::Disable(gl::CULL_FACE);
+            gl::Disable(gl::DEPTH_TEST);
+
+            gl::MultiDrawElementsIndirect(
+                gl::TRIANGLES,
+                gl::UNSIGNED_INT,
+                ptr::null(),
+                command_count,
+                stride,
+            );
+
+            gl::Enable(gl::CULL_FACE);
+            gl::Enable(gl::DEPTH_TEST);
+        }
+
+        self.input.events.clear();
+    }
+
+    fn upload_to_buffers(&self, clip_primitives: Vec<egui::ClippedPrimitive>) -> i32 {
+        let mut vertices = vec![];
+        let mut elements = vec![];
+        let mut commands = vec![];
+
+        for clip_primitive in clip_primitives {
+            if let Primitive::Mesh(mesh) = clip_primitive.primitive {
+                let Some(info) = self.textures.fetch(mesh.texture_id) else {
+                    println!("warning: unknown texture ID {:?}", mesh.texture_id);
+                    continue;
+                };
+
+                let command = DrawElementsCmd {
+                    count: mesh.indices.len() as u32,
+                    instance_count: 1,
+                    first_index: elements.len() as u32,
+                    base_vertex: vertices.len() as i32,
+                    texture_layer: info.layer as u32,
+                    uv_scale_x: info.width as f32 / self.textures.max_width as f32,
+                    uv_scale_y: info.height as f32 / self.textures.max_height as f32,
+                };
+
+                vertices.extend(mesh.vertices);
+                elements.extend(mesh.indices);
+                commands.push(command);
+            }
+        }
+
+        self.vertices.enable();
+        self.elements.enable();
+        self.commands.enable();
+
+        self.vertices.upload_data(&vertices, gl::STREAM_DRAW);
+        self.elements.upload_data(&elements, gl::STREAM_DRAW);
+        self.commands.upload_data(&commands, gl::STREAM_DRAW);
+
+        commands.len() as i32
+    }
+
+    #[allow(unused)]
     fn render_simple(&mut self, ui: impl FnMut(&Context)) {
         profile!();
         let output = self.ctx.run(self.input.clone(), ui);
@@ -129,7 +222,7 @@ impl UI {
     }
 
     fn update_texture(&mut self, id: TextureId, delta: &ImageDelta) {
-        let ImageData::Color(image) = &delta.image;
+        let egui::ImageData::Color(image) = &delta.image;
         let [w, h] = image.size;
         let [x, y] = delta.pos.unwrap_or([0, 0]);
         let info = self.textures.fetch_or_add(id, w, h);
@@ -142,7 +235,7 @@ impl UI {
         self.textures.array.generate_mipmaps();
     }
 
-    fn render_mesh(&self, mesh: &Mesh) {
+    fn render_mesh(&self, mesh: &egui::Mesh) {
         let Some(info) = self.textures.fetch(mesh.texture_id) else {
             println!("warning: unknown texture ID {:?}", mesh.texture_id);
             return;
@@ -186,7 +279,7 @@ impl UI {
             pos: self.mouse_pos,
             button: egui_mouse_button(raw),
             pressed,
-            modifiers: Modifiers::default(),
+            modifiers: egui::Modifiers::default(),
         };
 
         self.input.events.push(event);

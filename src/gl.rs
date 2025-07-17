@@ -183,6 +183,12 @@ impl Buffer {
         }
     }
 
+    pub fn set_ssbo_binding(&self, idx: u32) {
+        unsafe {
+            gl::BindBufferBase(gl::SHADER_STORAGE_BUFFER, idx, self.id);
+        }
+    }
+
     pub fn upload_data<T>(&self, data: &[T], usage: u32) {
         let size = to_isize(size_of_val(data));
 
