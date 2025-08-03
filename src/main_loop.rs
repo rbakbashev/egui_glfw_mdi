@@ -65,7 +65,6 @@ impl MainLoop {
             }
 
             self.render(accum / dt);
-            self.swap_buffers();
 
             limit_fps(fps_limit, &start);
             mark_frame_end();
@@ -126,6 +125,8 @@ impl MainLoop {
                 });
             });
         });
+
+        self.swap_buffers();
     }
 
     fn swap_buffers(&self) {
