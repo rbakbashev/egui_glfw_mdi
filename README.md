@@ -7,9 +7,9 @@ In an (admittedly, quite a synthetic) benchmark of about 400 draw calls:
 
 | Implementation        | Mean    | Median  | Std.dev   |
 | --------------------- | ------- | ------- | --------- |
-| Simple                | 4.13 ms | 4.05 ms | 1.22 ms   |
-| Simple + texture pool | 3.94 ms | 3.79 ms | 1.13 ms   |
-| MDI                   | 1.6 ms  | 1.22 ms | 935.95 μs |
+| Simple                | 4.35 ms | 4.17 ms | 1.07 ms   |
+| Simple + texture pool | 4.18 ms | 4.01 ms | 1.02 ms   |
+| MDI                   | 1.77 ms | 1.47 ms | 916.57 μs |
 
 Measured by [tracy](https://github.com/wolfpld/tracy):
   `cargo build --profile=relwithdbg --features=tracy-client`
