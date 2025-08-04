@@ -268,6 +268,13 @@ impl UI {
                 self.mouse_pos.y = *y;
                 self.input.events.push(egui::Event::PointerMoved(self.mouse_pos));
             }
+            Event::MouseScroll(x, y) => {
+                self.input.events.push(egui::Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Line,
+                    delta: Vec2::new(*x, *y),
+                    modifiers: egui::Modifiers::default(),
+                });
+            }
             Event::MousePress(btn) => self.mouse_press_event(*btn, true),
             Event::MouseRelease(btn) => self.mouse_press_event(*btn, false),
             _ => {}
