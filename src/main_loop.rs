@@ -102,26 +102,28 @@ impl MainLoop {
         }
 
         let grid_size_x = 10;
-        let grid_size_y = 20;
+        let grid_size_y = 30;
         let tex_size = 32.;
         let mut tex_idx = 0;
 
         self.ui.render(|ctx| {
-            egui::Window::new("hi").show(ctx, |ui| {
-                egui::Grid::new("labels").show(ui, |ui| {
-                    for y in 0..grid_size_y {
-                        for x in 0..grid_size_x {
-                            let texture = &self.textures[tex_idx];
+            egui::Window::new("hi").default_height(680.).show(ctx, |ui| {
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    egui::Grid::new("labels").show(ui, |ui| {
+                        for y in 0..grid_size_y {
+                            for x in 0..grid_size_x {
+                                let texture = &self.textures[tex_idx];
 
-                            ui.label(format!("{y},{x}"));
-                            ui.add(egui::Image::from_texture(*texture).max_width(tex_size));
+                                ui.label(format!("{y},{x}"));
+                                ui.add(egui::Image::from_texture(*texture).max_width(tex_size));
 
-                            tex_idx += 1;
-                            tex_idx %= self.textures.len();
+                                tex_idx += 1;
+                                tex_idx %= self.textures.len();
+                            }
+
+                            ui.end_row();
                         }
-
-                        ui.end_row();
-                    }
+                    });
                 });
             });
         });
