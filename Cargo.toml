@@ -4,6 +4,11 @@ version = "0.0.0"
 edition = "2024"
 license = "BSD-2-Clause-Patent"
 
+[profile.relwithdbg]
+inherits = "release"
+strip = "none"
+debug = true
+
 [workspace]
 members = ["glfw_sys"]
 
