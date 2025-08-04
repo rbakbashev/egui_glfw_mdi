@@ -49,6 +49,10 @@ struct DrawElementsCmd {
     texture_layer: u32, // was base_instance
     uv_scale_x: f32,
     uv_scale_y: f32,
+    scissor_x: f32,
+    scissor_y: f32,
+    scissor_w: f32,
+    scissor_h: f32,
 }
 
 impl UI {
@@ -142,6 +146,8 @@ impl UI {
     }
 
     fn upload_to_buffers(&self, clip_primitives: Vec<egui::ClippedPrimitive>) -> i32 {
+        let (width, height) = self.window_size();
+
         let mut vertices = vec![];
         let mut elements = vec![];
         let mut commands = vec![];
@@ -153,6 +159,12 @@ impl UI {
                     continue;
                 };
 
+                let rect = clip_primitive.clip_rect;
+                let clip_min_x = rect.min.x.round().clamp(0., width);
+                let clip_min_y = rect.min.y.round().clamp(0., height);
+                let clip_max_x = rect.max.x.round().clamp(clip_min_x, width);
+                let clip_max_y = rect.max.y.round().clamp(clip_min_y, height);
+
                 let command = DrawElementsCmd {
                     count: mesh.indices.len() as u32,
                     instance_count: 1,
@@ -161,6 +173,10 @@ impl UI {
                     texture_layer: info.layer as u32,
                     uv_scale_x: info.width as f32 / self.textures.max_width as f32,
                     uv_scale_y: info.height as f32 / self.textures.max_height as f32,
+                    scissor_x: clip_min_x,
+                    scissor_y: height - clip_max_y,
+                    scissor_w: clip_max_x - clip_min_x,
+                    scissor_h: clip_max_y - clip_min_y,
                 };
 
                 vertices.extend(mesh.vertices);

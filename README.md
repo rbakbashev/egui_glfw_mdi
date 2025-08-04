@@ -19,9 +19,6 @@ Limitations
   * Requires "modern" OpenGL 4.6 (from 2017), and is not available in browser
     (needs [`WEBGL_multi_draw`](https://developer.mozilla.org/en-US/docs/Web/API/WEBGL_multi_draw))
 
-  * Does not support `glScissor` simply because I haven't seen where it makes a visible difference.
-    Can be added by extending draw command structure and `discard`-ing in a shader.
-
   * Need to know maximum size of textures used in UI upfront.
 
   * Not a reusable library, because it's too tightly coupled to custom GLFW bindings and the `gl`
